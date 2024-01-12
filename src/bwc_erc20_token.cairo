@@ -126,8 +126,9 @@ mod BWCERC20Token {
             amount: u256
         ) {
             let caller = get_caller_address();
-            let my_allowance = self.allowances.read((sender, recipient));
-            assert(my_allowance <= amount, 'Amount Not Allowed');
+            let my_allowance = self.allowances.read((sender, caller));
+            //assert(my_allowance <= amount, 'Amount Not Allowed');
+            assert(amount <= my_allowance, 'Amount Not Allowed');
             self
                 .spend_allowance(
                     sender, caller, amount
@@ -222,11 +223,11 @@ mod test {
     use super::{IERC20, BWCERC20Token, IERC20Dispatcher, IERC20DispatcherTrait};
     use starknet::ContractAddress;
     use starknet::contract_address::contract_address_const;
-    use array::ArrayTrait;
+    use core::array::ArrayTrait;
     use snforge_std::{declare, ContractClassTrait, fs::{FileTrait, read_txt}};
     use snforge_std::{start_prank, stop_prank, CheatTarget};
     use snforge_std::PrintTrait;
-    use traits::{Into, TryInto};
+    use core::traits::{Into, TryInto};
 
     // helper function
     fn deploy_contract() -> ContractAddress {
@@ -306,10 +307,114 @@ mod test {
     fn test_transfer() {
         let contract_address = deploy_contract();
         let dispatcher = IERC20Dispatcher { contract_address };
+
         start_prank(CheatTarget::One(contract_address), Account::admin());
         dispatcher.transfer(Account::user1(), 10);
         let user1_balance = dispatcher.balance_of(Account::user1());
         assert(user1_balance == 10, Errors::INVALID_BALANCE);
+
+        stop_prank(CheatTarget::One(contract_address));
+    }
+
+    #[test]
+    fn test_transfer_from() {
+        let contract_address = deploy_contract();
+        let dispatcher = IERC20Dispatcher { contract_address };
+        let user1 = Account::user1();
+
+        let balance = dispatcher.get_total_supply();
+        let admin_balance = dispatcher.balance_of(Account::admin());
+        assert(admin_balance == balance, Errors::INVALID_BALANCE);
+
+        start_prank(CheatTarget::One(contract_address), Account::admin());
+        dispatcher.approve(user1, 10);
+        assert(dispatcher.allowance(Account::admin(), user1) == 10, Errors::NOT_ALLOWED);
+
+        stop_prank(CheatTarget::One(contract_address));
+
+        // let allowance = dispatcher.allowance(Account::admin(), contract_address);
+
+        start_prank(CheatTarget::One(contract_address), user1);
+        let tFrom = dispatcher.transfer_from(Account::admin(), Account::user2(), 10);
+        let user2_new_bal = dispatcher.balance_of(Account::user2());
+        assert(user2_new_bal == 10, Errors::INVALID_BALANCE);
+        stop_prank(CheatTarget::One(contract_address));
+    }
+
+    #[test]
+    #[should_panic(expected: ('Amount Not Allowed',))]
+    fn test_transfer_from_should_fail() {
+        let contract_address = deploy_contract();
+        let dispatcher = IERC20Dispatcher { contract_address };
+        start_prank(CheatTarget::One(contract_address), Account::admin());
+        dispatcher.approve(Account::user1(), 20);
+        stop_prank(CheatTarget::One(contract_address));
+
+        start_prank(CheatTarget::One(contract_address), Account::user1());
+        dispatcher.transfer_from(Account::admin(), Account::user2(), 40);
+    }
+
+    // #[test]
+    // fn test_transfer_from_should_failed_when_not_approved() {
+    //     let contract_address = deploy_contract();
+    //     let dispatcher = IERC20Dispatcher { contract_address };
+    //     start_prank(CheatTarget::One(contract_address), Account::user1());
+    //     dispatcher.transfer_from(Account::admin(), Account::user2(), 5);
+    //     assert(dispatcher.balance_of(Account::user2()) != 5, Errors::INVALID_BALANCE);
+    //     stop_prank(CheatTarget::One(contract_address));
+    // }
+
+    #[test]
+    fn test_approve() {
+        let contract_address = deploy_contract();
+        let dispatcher = IERC20Dispatcher { contract_address };
+
+        start_prank(CheatTarget::One(contract_address), Account::admin());
+        dispatcher.approve(Account::user1(), 5);
+        stop_prank(CheatTarget::One(contract_address));
+
+        //let allowance = dispatcher.allowance(Account::admin(), Account::user1());
+        assert(
+            dispatcher.allowance(Account::admin(), Account::user1()) == 5, Errors::INVALID_BALANCE
+        );
+    }
+
+    #[test]
+    fn test_increase_allowance() {
+        let contract_address = deploy_contract();
+        let dispatcher = IERC20Dispatcher { contract_address };
+
+        start_prank(CheatTarget::One(contract_address), Account::admin());
+        dispatcher.approve(Account::user1(), 50);
+        assert(
+            dispatcher.allowance(Account::admin(), Account::user1()) == 50, Errors::INVALID_BALANCE
+        );
+        dispatcher.increase_allowance(Account::user1(), 20);
+
+        assert(
+            dispatcher.allowance(Account::admin(), Account::user1()) == 70,
+            Errors::ERROR_INCREASING_ALLOWANCE
+        );
+
+        stop_prank(CheatTarget::One(contract_address));
+    }
+
+    #[test]
+    fn test_decrease_allowance() {
+        let contract_address = deploy_contract();
+        let dispatcher = IERC20Dispatcher { contract_address };
+
+        start_prank(CheatTarget::One(contract_address), Account::admin());
+        dispatcher.approve(Account::user1(), 50);
+        assert(
+            dispatcher.allowance(Account::admin(), Account::user1()) == 50, Errors::INVALID_BALANCE
+        );
+        dispatcher.decrease_allowance(Account::user1(), 20);
+
+        assert(
+            dispatcher.allowance(Account::admin(), Account::user1()) == 30,
+            Errors::ERROR_DECREASING_ALLOWANCE
+        );
 
         stop_prank(CheatTarget::One(contract_address));
     }
@@ -319,12 +424,15 @@ mod test {
         const INVALID_DECIMALS: felt252 = 'Invalid decimals';
         const UNMATCHED_SUPPLY: felt252 = 'Unmatched supply';
         const INVALID_BALANCE: felt252 = 'Invalid balance';
+        const NOT_ALLOWED: felt252 = 'Not allowed';
+        const ERROR_INCREASING_ALLOWANCE: felt252 = 'Error increasing allowance';
+        const ERROR_DECREASING_ALLOWANCE: felt252 = 'Error decreasing allowance';
     }
 
     mod Account {
         use core::option::OptionTrait;
         use starknet::ContractAddress;
-        use traits::TryInto;
+        use core::traits::TryInto;
 
         fn user1() -> ContractAddress {
             'joy'.try_into().unwrap()

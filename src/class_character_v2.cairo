@@ -94,6 +94,46 @@ mod ClassCharacterV2 {
     fn get_student(self: @ContractState, student_account: ContractAddress) -> Student {
         self.students.read(student_account)
     }
-//  #[generate_trait] // this attribute is used to generate a trait that is not declared at compile time
+    //  #[generate_trait] // this attribute is used to generate a trait that is not declared at compile time
 
+    #[cfg(test)]
+    mod test {
+        use core::serde::Serde;
+        //use super::{IERC20, BWCERC20Token, IERC20Dispatcher, IERC20DispatcherTrait};
+        use starknet::ContractAddress;
+        use starknet::contract_address::contract_address_const;
+        use core::array::ArrayTrait;
+        use snforge_std::{declare, ContractClassTrait, fs::{FileTrait, read_txt}};
+        use snforge_std::{start_prank, stop_prank, CheatTarget};
+        use snforge_std::PrintTrait;
+        use core::traits::{Into, TryInto};
+
+        // helper function
+        fn deploy_contract() -> ContractAddress {
+            let class_character_class = declare('ClassCharacter');
+            let file = FileTrait::new('data/constructor_args_cc.txt');
+            let constructor_args = read_txt(@file);
+
+            let contract_address = class_character_class.deploy(@constructor_args).unwrap();
+            contract_address
+        }
+
+        #[test]
+        mod Account {
+            use core::option::OptionTrait;
+            use starknet::ContractAddress;
+            use core::traits::TryInto;
+
+            fn user1() -> ContractAddress {
+                'joy'.try_into().unwrap()
+            }
+
+            fn user2() -> ContractAddress {
+                'caleb'.try_into().unwrap()
+            }
+            fn admin() -> ContractAddress {
+                'admin'.try_into().unwrap()
+            }
+        }
+    }
 }
